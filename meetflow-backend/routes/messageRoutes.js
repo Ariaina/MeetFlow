@@ -11,7 +11,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { otherUserEmail } = req.query;
 
-    if (!otherUserEmail) {
+    if (!otherUserEmail || typeof otherUserEmail !== 'string') {
       return res.status(400).json({ error: 'otherUserEmail parameter is required' });
     }
 
@@ -32,7 +32,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch messages', details: error.message });
+    res.status(500).json({ error: 'Failed to fetch messages' });
   }
 });
 
@@ -111,6 +111,9 @@ router.post('/mark-as-read', authenticateToken, async (req, res) => {
   try {
     const { contactId } = req.body;
     const userId = req.user.id;
+    if (!mongoose.isValidObjectId(contactId)) {
+      return res.status(400).json({ error: 'Invalid contactId' });
+    }
 
     await Message.updateMany(
       { senderId: contactId, receiverId: userId, isRead: false },
@@ -119,7 +122,7 @@ router.post('/mark-as-read', authenticateToken, async (req, res) => {
 
     res.status(200).json({ message: 'Messages marked as read' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to mark messages as read', details: error.message });
+    res.status(500).json({ error: 'Failed to mark messages as read' });
   }
 });
 

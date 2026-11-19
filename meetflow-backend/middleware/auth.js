@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from '../config/env.js';
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -6,17 +7,16 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  const token = authHeader.split(' ')[1];
-  if (!token) {
+  const [scheme, token] = authHeader.split(' ');
+  if (scheme !== 'Bearer' || !token) {
     return res.status(401).json({ error: 'Invalid token format' });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (error) {
-    res.status(403).json({ error: 'Invalid or expired token', message: error.message });
+  } catch {
+    res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
 

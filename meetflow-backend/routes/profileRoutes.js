@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import authenticateToken from '../middleware/auth.js';
 import upload from '../middleware/multerConfig.js';
 import User from '../models/User.js';
+import { JWT_SECRET } from '../config/env.js';
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ router.put('/update-profile', authenticateToken, upload.single('photo'), async (
     const userId = req.user.id;
     const { firstName, lastName } = req.body;
 
-    if (!firstName || !lastName || firstName === 'undefined' || lastName === 'undefined') {
+    if (typeof firstName !== 'string' || typeof lastName !== 'string' || !firstName || !lastName || firstName === 'undefined' || lastName === 'undefined') {
       return res.status(400).json({ error: 'firstName and lastName are required and must not be "undefined"' });
     }
 
@@ -33,14 +34,14 @@ router.put('/update-profile', authenticateToken, upload.single('photo'), async (
         lastName: updatedUser.lastName,
         photoUrl: updatedUser.photoUrl,
       },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: '1h' }
     );
-    console.log(updatedUser)
 
-    res.json({ ...updatedUser.toObject(), token });
+    const { password, ...safeUser } = updatedUser.toObject();
+    res.json({ ...safeUser, token });
   } catch (error) {
-    res.status(500).json({ error: 'Update failed', details: error.message });
+    res.status(500).json({ error: 'Update failed' });
   }
 });
 

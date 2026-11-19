@@ -12,26 +12,33 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
+// L'extension est déduite du type MIME validé, jamais du nom fourni par le client
+// (sinon un fichier "photo.html" déclaré image/png serait servi comme HTML).
+const EXTENSIONS = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    const userId = req.user.id;
-    const timestamp = Date.now();
-    const extension = path.extname(file.originalname);
-    cb(null, `${userId}-${timestamp}${extension}`);
+    cb(null, `${req.user.id}-${Date.now()}${EXTENSIONS[file.mimetype]}`);
   },
 });
 
 const upload = multer({
   storage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    if (allowedTypes.includes(file.mimetype)) {
+    if (EXTENSIONS[file.mimetype]) {
       cb(null, true);
     } else {
-      cb(new Error('Only images are allowed.'));
+      const err = new Error('Only JPEG, PNG or GIF images are allowed.');
+      err.status = 400;
+      cb(err);
     }
   },
 });

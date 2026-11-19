@@ -35,6 +35,7 @@
 
 ```bash
 cd meetflow-backend
+cp .env.example .env   # puis renseigner JWT_SECRET et MONGO_URI
 npm install
 node server.js
 ````

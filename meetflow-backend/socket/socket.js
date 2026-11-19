@@ -1,51 +1,83 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import Room from '../models/Room.js';
+import { JWT_SECRET } from '../config/env.js';
+
+const MAX_MESSAGE_LENGTH = 5000;
+
+// Salle personnelle d'un utilisateur : permet d'adresser un signal WebRTC
+// à un seul destinataire au lieu de le diffuser à toute la salle vidéo.
+const userRoom = (userId) => `user:${userId}`;
+
+const leaveVideoRoom = async (io, socket) => {
+  const roomId = socket.videoRoomId;
+  if (!roomId) return;
+  socket.videoRoomId = null;
+  socket.leave(roomId);
+  socket.to(roomId).emit('user-disconnected', socket.userId);
+  try {
+    await Room.updateOne({ roomId }, { $pull: { users: socket.userId } });
+    const room = await Room.findOne({ roomId });
+    if (room && room.users.length === 0) {
+      await Room.deleteOne({ roomId });
+      console.log(`Salle ${roomId} supprimée car vide`);
+    }
+  } catch (error) {
+    console.error('Erreur en quittant la salle vidéo:', error);
+  }
+};
 
 const setupSocket = (io) => {
   io.on('connection', (socket) => {
     console.log(`Nouvelle connexion: ${socket.id}`);
 
-    socket.on('authenticate', ({ token }) => {
+    // Tous les événements sauf "authenticate" exigent un socket authentifié.
+    socket.use(([event], next) => {
+      if (event === 'authenticate' || socket.userId) return next();
+      next(new Error('unauthorized'));
+    });
+
+    socket.on('error', (err) => {
+      if (err && err.message === 'unauthorized') {
+        socket.emit('error', { message: 'Non authentifié' });
+      }
+    });
+
+    socket.on('authenticate', ({ token } = {}) => {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret');
-        socket.userId = decoded.id;
-        console.log(`Utilisateur authentifié: ${socket.userId}`);
+        const decoded = jwt.verify(token, JWT_SECRET);
+        socket.userId = String(decoded.id);
+        socket.join(userRoom(socket.userId));
         socket.emit('authenticated', { userId: socket.userId });
-      } catch (error) {
-        console.error('Erreur d’authentification:', error);
+      } catch {
+        socket.emit('error', { message: 'Jeton invalide' });
         socket.disconnect();
       }
     });
 
-    socket.on('join-room', (roomId, userId) => {
-      socket.join(roomId);
-      socket.to(roomId).emit('user-connected', userId);
-    });
-
-    socket.on('send-message', (roomId, message) => {
-      socket.to(roomId).emit('receive-message', message);
-    });
-
     socket.on('join-private-chat', (userId1, userId2) => {
-      const chatId = [userId1, userId2].sort().join('-');
-      socket.join(chatId);
+      const ids = [String(userId1), String(userId2)];
+      // On ne peut rejoindre que ses propres conversations.
+      if (!ids.includes(socket.userId)) {
+        console.warn(`join-private-chat refusé pour ${socket.userId}`);
+        return;
+      }
+      socket.join(ids.sort().join('-'));
     });
 
-    socket.on('send-private-message', async (data) => {
+    socket.on('send-private-message', async (data = {}) => {
       try {
         const { senderId, receiverId, message } = data;
-        if (!senderId || !receiverId || !message) {
-          console.error('Champs requis manquants:', { senderId, receiverId, message });
+        if (typeof message !== 'string' || !message.trim() || message.length > MAX_MESSAGE_LENGTH) {
           return;
         }
-        if (senderId !== socket.userId) {
-          console.error('senderId non autorisé:', senderId);
+        if (String(senderId) !== socket.userId || !mongoose.isValidObjectId(receiverId)) {
           return;
         }
-        const chatId = [senderId, receiverId].sort().join('-');
+        const chatId = [socket.userId, String(receiverId)].sort().join('-');
         const newMessage = new Message({
-          senderId,
+          senderId: socket.userId,
           receiverId,
           text: message,
           time: new Date(),
@@ -53,69 +85,59 @@ const setupSocket = (io) => {
         });
         await newMessage.save();
         io.to(chatId).emit('receive-private-message', {
-          senderId,
-          receiverId,
+          senderId: socket.userId,
+          receiverId: String(receiverId),
           message,
           time: newMessage.time,
           isRead: false,
-        });
-        io.to(senderId).emit('receive-private-message', {
-          senderId,
-          receiverId,
-          message,
-          time: newMessage.time,
-          isRead: true,
         });
       } catch (error) {
         console.error('Erreur lors de l’enregistrement du message:', error);
       }
     });
 
-    socket.on('join-video-room', async ({ roomId }) => {
+    socket.on('join-video-room', async ({ roomId } = {}) => {
       try {
+        if (typeof roomId !== 'string') return;
         const room = await Room.findOne({ roomId });
         if (!room) {
           socket.emit('error', { message: 'Salle non trouvée' });
           return;
         }
+        if (socket.videoRoomId && socket.videoRoomId !== roomId) {
+          await leaveVideoRoom(io, socket);
+        }
         if (!room.users.includes(socket.userId)) {
           room.users.push(socket.userId);
           await room.save();
         }
-        console.log(`Utilisateur ${socket.userId} rejoint la salle vidéo ${roomId}`);
+        socket.videoRoomId = roomId;
         socket.join(roomId);
-
-        // Notify other users in the room about the new user
         socket.to(roomId).emit('user-connected', socket.userId);
-
-        // Send the list of existing users to the new user
-        const existingUsers = room.users.filter(userId => userId !== socket.userId);
-        socket.emit('existing-users', existingUsers);
-        console.log(`Utilisateurs existants envoyés à ${socket.userId}:`, existingUsers);
-
-        socket.on('signal', ({ userId, signal }) => {
-          console.log(`Signal de ${socket.userId} pour ${userId}:`, signal.type, signal.sdp ? 'avec SDP' : '');
-          io.to(roomId).emit('signal', {
-            userId: socket.userId,
-            targetUserId: userId,
-            signal,
-          });
-        });
-
-        socket.on('disconnect', async () => {
-          console.log(`Utilisateur ${socket.userId} a quitté la salle vidéo ${roomId}`);
-          socket.to(roomId).emit('user-disconnected', socket.userId);
-          await Room.updateOne({ roomId }, { $pull: { users: socket.userId } });
-          const room = await Room.findOne({ roomId });
-          if (room && room.users.length === 0) {
-            await Room.deleteOne({ roomId });
-            console.log(`Salle ${roomId} supprimée car vide`);
-          }
-        });
+        socket.emit('existing-users', room.users.filter((id) => id !== socket.userId));
       } catch (error) {
         console.error('Erreur lors de la jointure de la salle vidéo:', error);
         socket.emit('error', { message: 'Erreur serveur' });
       }
+    });
+
+    // Enregistré une seule fois par socket (avant : à chaque join-video-room).
+    socket.on('signal', async ({ userId, signal } = {}) => {
+      const roomId = socket.videoRoomId;
+      if (!roomId || !userId || !signal) return;
+      const targetId = String(userId);
+      // Le destinataire doit être dans la même salle vidéo.
+      const room = await Room.findOne({ roomId, users: targetId }).lean();
+      if (!room) return;
+      io.to(userRoom(targetId)).emit('signal', {
+        userId: socket.userId,
+        targetUserId: targetId,
+        signal,
+      });
+    });
+
+    socket.on('disconnect', () => {
+      leaveVideoRoom(io, socket);
     });
   });
 };

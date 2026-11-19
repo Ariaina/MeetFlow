@@ -16,7 +16,7 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/one-user', authenticateToken, async (req, res) => {
   try {
     const { email } = req.query;
-    if (!email) {
+    if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Email parameter required' });
     }
 
@@ -27,7 +27,7 @@ router.get('/one-user', authenticateToken, async (req, res) => {
 
     res.status(200).json(user);
   } catch (error) {
-    res.status(500).json({ error: 'Server error', details: error.message });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

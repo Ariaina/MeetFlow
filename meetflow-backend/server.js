@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import { PORT, CLIENT_ORIGIN } from './config/env.js';
 import express from 'express';
 import cors from 'cors';
 import { Server } from 'socket.io';
@@ -12,28 +12,33 @@ import profileRoutes from './routes/profileRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
 import setupSocket from './socket/socket.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:4200',
+  origin: CLIENT_ORIGIN,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
-app.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
+app.use('/Uploads', express.static(path.join(__dirname, 'Uploads'), {
+  dotfiles: 'deny',
+  index: false,
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+  },
+}));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -43,18 +48,24 @@ app.use('/api/video', videoRoutes);
 
 app.use((err, req, res, next) => {
   console.error('Global error:', err);
-  res.status(500).json({ error: 'Something went wrong', details: err.message });
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 5 MB)' : 'Invalid upload' });
+  }
+  if (err.status && err.status < 500) {
+    return res.status(err.status).json({ error: err.message });
+  }
+  res.status(500).json({ error: 'Something went wrong' });
 });
 
 connectDB();
 
-const server = app.listen(process.env.PORT || 3000, () => {
-  console.log(`Server running on port ${process.env.PORT || 3000}`);
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:4200',
+    origin: CLIENT_ORIGIN,
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

@@ -1,7 +1,12 @@
 import express from 'express';
-import { hash, compare } from 'bcrypt';
+import { hash, compare, hashSync } from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { JWT_SECRET } from '../config/env.js';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Hash factice pour que la durée de réponse ne révèle pas si l'email existe.
+const DUMMY_HASH = hashSync('dummy-password-for-timing', 10);
 
 const router = express.Router();
 
@@ -10,6 +15,15 @@ router.post('/register', async (req, res) => {
     const { lastName, firstName, email, password } = req.body;
     if (!lastName || !firstName || !email || !password) {
       return res.status(400).json({ error: 'All fields are required' });
+    }
+    if ([lastName, firstName, email, password].some((v) => typeof v !== 'string')) {
+      return res.status(400).json({ error: 'Invalid input' });
+    }
+    if (!EMAIL_RE.test(email) || email.length > 254) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+    if (password.length < 8 || password.length > 72) {
+      return res.status(400).json({ error: 'Password must be between 8 and 72 characters' });
     }
 
     const hashedPassword = await hash(password, 10);
@@ -20,7 +34,7 @@ router.post('/register', async (req, res) => {
     if (error.code === 11000) {
       res.status(400).json({ error: 'Email already exists' });
     } else {
-      res.status(500).json({ error: 'Registration failed', details: error.message });
+      res.status(500).json({ error: 'Registration failed' });
     }
   }
 });
@@ -31,9 +45,13 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Invalid input' });
+    }
 
     const user = await User.findOne({ email });
-    if (!user || !(await compare(password, user.password))) {
+    const passwordOk = await compare(password, user ? user.password : DUMMY_HASH);
+    if (!user || !passwordOk) {
       return res.status(400).json({ error: 'Invalid email or password' });
     }
 
@@ -45,7 +63,7 @@ router.post('/login', async (req, res) => {
         lastName: user.lastName,
         photoUrl: user.photoUrl || '',
       },
-      process.env.JWT_SECRET || 'your_jwt_secret',
+      JWT_SECRET,
       { expiresIn: '1h' }
     );
 
@@ -61,7 +79,7 @@ router.post('/login', async (req, res) => {
       token,
     });
   } catch (error) {
-    res.status(500).json({ error: 'Login failed', details: error.message });
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 

@@ -121,7 +121,7 @@ export class ChatAreaComponent implements OnInit, AfterViewInit, OnDestroy {
       Authorization: `Bearer ${this.authService.getToken()}`,
     });
     this.http
-      .get(`http://localhost:3000/api/video/check-room/${this.roomIdInput}`, { headers })
+      .get(`http://localhost:3000/api/video/check-room/${encodeURIComponent(this.roomIdInput.trim())}`, { headers })
       .subscribe({
         next: (response: any) => {
           this.roomId = this.roomIdInput;

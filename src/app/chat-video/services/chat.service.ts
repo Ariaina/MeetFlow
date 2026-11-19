@@ -45,7 +45,7 @@ export class ChatService {
 
   loadMessages(otherUserEmail: string): Observable<ApiMessage[]> {
     const token = this.authService.getToken();
-    return this.http.get<ApiMessage[]>(`${this.apiUrl}/api/messages?otherUserEmail=${otherUserEmail}`, {
+    return this.http.get<ApiMessage[]>(`${this.apiUrl}/api/messages?otherUserEmail=${encodeURIComponent(otherUserEmail)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
   }

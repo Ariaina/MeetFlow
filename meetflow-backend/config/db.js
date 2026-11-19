@@ -1,13 +1,12 @@
 import mongoose from 'mongoose';
+import { MONGO_URI } from './env.js';
 
 const connectDB = async () => {
   try {
-    await mongoose.connect('mongodb://ariaina:root@localhost:27017/meetFlow', {
-      authSource: 'admin',
-    });
+    await mongoose.connect(MONGO_URI);
     console.log('Connected to MongoDB');
   } catch (err) {
-    console.error('MongoDB connection error:', err);
+    console.error('MongoDB connection error:', err.message);
     process.exit(1);
   }
 };

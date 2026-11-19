@@ -40,7 +40,7 @@ export class AuthService {
 
   private fetchUserDetails(email: string, token: string): void {
     this.http
-      .get(`${this.apiUrl}/api/users/one-user?email=${email}`, {
+      .get(`${this.apiUrl}/api/users/one-user?email=${encodeURIComponent(email)}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       .subscribe({
@@ -85,7 +85,22 @@ export class AuthService {
 
   private getUserFromToken(): any | null {
     const token = this.getToken();
-    return token ? jwtDecode(token) : null;
+    if (!token) return null;
+    try {
+      return jwtDecode(token);
+    } catch {
+      localStorage.removeItem(this.tokenKey);
+      return null;
+    }
+  }
+
+  private isTokenExpired(token: string): boolean {
+    try {
+      const { exp } = jwtDecode<{ exp?: number }>(token);
+      return !exp || exp * 1000 <= Date.now();
+    } catch {
+      return true;
+    }
   }
 
   updateProfile(data: FormData): Observable<any> {
@@ -109,7 +124,14 @@ export class AuthService {
   }
 
   isLoggedIn(): boolean {
-    return !!this.getToken();
+    const token = this.getToken();
+    if (!token) return false;
+    if (this.isTokenExpired(token)) {
+      localStorage.removeItem(this.tokenKey);
+      this.currentUserSubject.next(null);
+      return false;
+    }
+    return true;
   }
 
   logout(): void {
