@@ -11,11 +11,18 @@ import messageRoutes from './routes/messageRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
 import setupSocket from './socket/socket.js';
+import { apiLimiter } from './middleware/rateLimit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Derrière un proxy inverse (nginx, Heroku…), définir TRUST_PROXY=1 pour que
+// la limitation se base sur la vraie IP du client et non celle du proxy.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
 
 app.use(cors({
   origin: CLIENT_ORIGIN,
@@ -40,6 +47,7 @@ app.use('/Uploads', express.static(path.join(__dirname, 'Uploads'), {
   },
 }));
 
+app.use('/api', apiLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);

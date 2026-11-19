@@ -3,6 +3,7 @@ import { hash, compare, hashSync } from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { JWT_SECRET } from '../config/env.js';
+import { loginLimiter, registerLimiter } from '../middleware/rateLimit.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Hash factice pour que la durée de réponse ne révèle pas si l'email existe.
@@ -10,7 +11,7 @@ const DUMMY_HASH = hashSync('dummy-password-for-timing', 10);
 
 const router = express.Router();
 
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { lastName, firstName, email, password } = req.body;
     if (!lastName || !firstName || !email || !password) {
@@ -39,7 +40,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
